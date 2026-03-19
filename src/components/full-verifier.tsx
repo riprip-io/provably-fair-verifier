@@ -8,7 +8,7 @@ import {
   type OpenBatchResult,
 } from '@riprip-io/provably-fair';
 import { parseHex, bytesToHex } from '../lib/hex';
-import { isValidUUID, isValidHex64, isNonNegativeInteger, isPositiveInteger, validateDrawTablesJSON } from '../lib/validation';
+import { isValidUUID, isValidHex64, isNonNegativeInteger, isPositiveInteger, validateDrawTablesJSON, MAX_QUANTITY } from '../lib/validation';
 import type { VerificationReceipt } from '../lib/receipt';
 import { ReceiptImport } from './receipt-import';
 import { DrawTablesInput } from './draw-tables-input';
@@ -79,6 +79,10 @@ export function FullVerifier() {
     }
     if (!isPositiveInteger(quantity)) {
       setError('Quantity must be a positive integer');
+      return;
+    }
+    if (parseInt(quantity, 10) > MAX_QUANTITY) {
+      setError(`Quantity must be ≤ ${MAX_QUANTITY}`);
       return;
     }
 
