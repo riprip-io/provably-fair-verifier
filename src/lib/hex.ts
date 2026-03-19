@@ -5,7 +5,7 @@ export { bytesToHex, hexToBytes };
 /** Strip optional 0x prefix and validate hex string */
 export function normalizeHex(input: string): string {
   const stripped = input.startsWith('0x') ? input.slice(2) : input;
-  if (!/^[0-9a-fA-F]*$/.test(stripped)) {
+  if (!/^[0-9a-fA-F]+$/.test(stripped)) {
     throw new Error('Invalid hex characters');
   }
   return stripped.toLowerCase();

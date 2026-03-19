@@ -1,4 +1,4 @@
-import { isValidUUID, isValidHex64, validateDrawTablesJSON } from './validation';
+import { isValidUUID, isValidHex64, validateDrawTablesJSON, MAX_QUANTITY } from './validation';
 
 export interface VerificationReceipt {
   version: number;
@@ -35,6 +35,13 @@ export function parseReceipt(json: string): ReceiptValidation {
       return { valid: false, error: `Unsupported version: ${parsed.version}` };
     }
 
+    // Trim string fields before validation
+    if (typeof parsed.serverSecret === 'string') parsed.serverSecret = parsed.serverSecret.trim();
+    if (typeof parsed.commitHash === 'string') parsed.commitHash = parsed.commitHash.trim();
+    if (typeof parsed.userId === 'string') parsed.userId = parsed.userId.trim();
+    if (typeof parsed.clientSeed === 'string') parsed.clientSeed = parsed.clientSeed.trim();
+    if (typeof parsed.packConfigHash === 'string') parsed.packConfigHash = parsed.packConfigHash.trim();
+
     if (!isValidHex64(parsed.serverSecret)) {
       return { valid: false, error: 'Invalid serverSecret (expected 64 hex chars)' };
     }
@@ -65,6 +72,9 @@ export function parseReceipt(json: string): ReceiptValidation {
 
     if (typeof parsed.quantity !== 'number' || parsed.quantity < 1 || !Number.isInteger(parsed.quantity)) {
       return { valid: false, error: 'Invalid quantity (expected positive integer)' };
+    }
+    if (parsed.quantity > MAX_QUANTITY) {
+      return { valid: false, error: `quantity must be ≤ ${MAX_QUANTITY}` };
     }
 
     const drawValidation = validateDrawTablesJSON(JSON.stringify(parsed.drawTables));
