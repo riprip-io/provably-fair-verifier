@@ -10,7 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@riprip-io/provably-fair": "file:../packages/provably-fair",
+    "@riprip-io/provably-fair": "^0.2.0",
     "preact": "^10.25.4"
   },
   "devDependencies": {

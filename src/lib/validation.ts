@@ -52,9 +52,6 @@ export function validateDrawTablesJSON(json: string): DrawTableValidation {
         if (typeof item.weight !== 'number' || item.weight < 1 || !Number.isInteger(item.weight)) {
           return { valid: false, error: `Table ${i}, item ${j}: weight must be a positive integer` };
         }
-        if (item.weight > 1_000_000) {
-          return { valid: false, error: `Table ${i}, item ${j}: weight must be ≤ 1,000,000` };
-        }
       }
     }
     return { valid: true, tables: parsed as DrawTable[] };
