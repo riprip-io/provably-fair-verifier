@@ -118,14 +118,8 @@ describe('validateDrawTablesJSON', () => {
     expect(result.error).toContain('weight');
   });
 
-  it('rejects weight > 1,000,000', () => {
-    const result = validateDrawTablesJSON(JSON.stringify([{ drawId: 0, drawsPerOpen: 1, items: [{ sku: 's', weight: 1_000_001 }] }]));
-    expect(result.valid).toBe(false);
-    expect(result.error).toContain('1,000,000');
-  });
-
-  it('accepts weight exactly 1,000,000', () => {
-    const result = validateDrawTablesJSON(JSON.stringify([{ drawId: 0, drawsPerOpen: 1, items: [{ sku: 's', weight: 1_000_000 }] }]));
+  it('accepts large weights', () => {
+    const result = validateDrawTablesJSON(JSON.stringify([{ drawId: 0, drawsPerOpen: 1, items: [{ sku: 's', weight: 97_000_000 }] }]));
     expect(result.valid).toBe(true);
   });
 

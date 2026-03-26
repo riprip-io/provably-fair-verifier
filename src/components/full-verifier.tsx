@@ -65,6 +65,10 @@ export function FullVerifier() {
       setError('Client Seed is required');
       return;
     }
+    if (!isValidHex64(clientSeed)) {
+      setError('Client Seed must be 64 hex characters');
+      return;
+    }
     if (!isNonNegativeInteger(purchaseNonce)) {
       setError('Purchase Nonce must be a non-negative integer');
       return;
@@ -150,7 +154,7 @@ export function FullVerifier() {
         <fieldset class="space-y-3">
           <legend class="text-xs font-semibold uppercase tracking-wider text-gray-500">User</legend>
           <Field label="User ID" value={userId} onInput={setUserId} placeholder="UUID (e.g. 550e8400-e29b-41d4-a716-446655440000)" />
-          <Field label="Client Seed" value={clientSeed} onInput={setClientSeed} placeholder="The seed you chose" />
+          <Field label="Client Seed" value={clientSeed} onInput={setClientSeed} placeholder="64 hex characters (your random seed)" />
           <Field label="Purchase Nonce" value={purchaseNonce} onInput={setPurchaseNonce} placeholder="Non-negative integer" />
         </fieldset>
 
