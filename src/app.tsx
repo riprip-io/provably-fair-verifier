@@ -1,12 +1,21 @@
-import { useState } from 'preact/hooks';
+import { useMemo, useState } from 'preact/hooks';
 import { EpochVerifier } from './components/epoch-verifier';
 import { FullVerifier } from './components/full-verifier';
 import { SelfTestBanner } from './components/self-test-banner';
 import { AlgorithmSection } from './components/algorithm-section';
+import { loadReceiptFromSearch } from './lib/url-receipt';
 
 type Tab = 'epoch' | 'full';
 
 export function App() {
+  // RIP-753: external tools (e.g. the RipRip admintool) can deep-link
+  // with `?receipt=<base64-json>`. Read once on mount — useMemo, not
+  // useEffect, so the receipt is in place before FullVerifier first
+  // mounts (avoids a render flash with empty fields).
+  const urlReceipt = useMemo(
+    () => loadReceiptFromSearch(typeof window !== 'undefined' ? window.location.search : ''),
+    [],
+  );
   const [tab, setTab] = useState<Tab>('full');
 
   return (
@@ -51,7 +60,16 @@ export function App() {
 
       <main>
         {tab === 'epoch' && <EpochVerifier />}
-        {tab === 'full' && <FullVerifier />}
+        {tab === 'full' && (
+          <FullVerifier
+            initialReceipt={urlReceipt.validation?.valid ? urlReceipt.validation.receipt : undefined}
+            initialReceiptError={
+              urlReceipt.present && urlReceipt.validation && !urlReceipt.validation.valid
+                ? urlReceipt.validation.error
+                : undefined
+            }
+          />
+        )}
       </main>
 
       <AlgorithmSection />

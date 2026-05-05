@@ -14,21 +14,47 @@ import { ReceiptImport } from './receipt-import';
 import { DrawTablesInput } from './draw-tables-input';
 import { ResultsDisplay } from './results-display';
 
-export function FullVerifier() {
-  const [serverSecret, setServerSecret] = useState('');
-  const [commitHash, setCommitHash] = useState('');
-  const [userId, setUserId] = useState('');
-  const [clientSeed, setClientSeed] = useState('');
-  const [purchaseNonce, setPurchaseNonce] = useState('');
-  const [epochId, setEpochId] = useState('');
-  const [packConfigHash, setPackConfigHash] = useState('');
-  const [quantity, setQuantity] = useState('1');
-  const [drawTablesJson, setDrawTablesJson] = useState('');
+interface FullVerifierProps {
+  /**
+   * Pre-imported receipt (RIP-753). When set, the form mounts with all
+   * fields prefilled — used for `?receipt=<b64>` deep-links from the
+   * RipRip admintool's per-opening verifier button.
+   */
+  initialReceipt?: VerificationReceipt;
+  /** Error to render when the URL-borne receipt failed to decode. */
+  initialReceiptError?: string;
+}
+
+function preloadFromReceipt(r: VerificationReceipt | undefined) {
+  return {
+    serverSecret: r?.serverSecret ?? '',
+    commitHash: r?.commitHash ?? '',
+    userId: r?.userId ?? '',
+    clientSeed: r?.clientSeed ?? '',
+    purchaseNonce: r ? String(r.purchaseNonce) : '',
+    epochId: r ? String(r.epochId) : '',
+    packConfigHash: r?.packConfigHash ?? '',
+    quantity: r ? String(r.quantity) : '1',
+    drawTablesJson: r ? JSON.stringify(r.drawTables, null, 2) : '',
+  };
+}
+
+export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifierProps = {}) {
+  const seed = preloadFromReceipt(initialReceipt);
+  const [serverSecret, setServerSecret] = useState(seed.serverSecret);
+  const [commitHash, setCommitHash] = useState(seed.commitHash);
+  const [userId, setUserId] = useState(seed.userId);
+  const [clientSeed, setClientSeed] = useState(seed.clientSeed);
+  const [purchaseNonce, setPurchaseNonce] = useState(seed.purchaseNonce);
+  const [epochId, setEpochId] = useState(seed.epochId);
+  const [packConfigHash, setPackConfigHash] = useState(seed.packConfigHash);
+  const [quantity, setQuantity] = useState(seed.quantity);
+  const [drawTablesJson, setDrawTablesJson] = useState(seed.drawTablesJson);
 
   const [results, setResults] = useState<OpenBatchResult | null>(null);
   const [epochCheck, setEpochCheck] = useState<{ valid: boolean; computedHash: string } | null>(null);
   const [intermediates, setIntermediates] = useState<{ userKey: string; clientSeedHash: string } | null>(null);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(initialReceiptError ?? '');
 
   function handleImport(receipt: VerificationReceipt) {
     setServerSecret(receipt.serverSecret);
