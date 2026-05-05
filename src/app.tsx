@@ -1,21 +1,39 @@
-import { useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
 import { EpochVerifier } from './components/epoch-verifier';
 import { FullVerifier } from './components/full-verifier';
 import { SelfTestBanner } from './components/self-test-banner';
 import { AlgorithmSection } from './components/algorithm-section';
-import { loadReceiptFromSearch } from './lib/url-receipt';
+import { loadReceiptFromSearch, type UrlReceiptLoad } from './lib/url-receipt';
 
 type Tab = 'epoch' | 'full';
 
 export function App() {
   // RIP-753: external tools (e.g. the RipRip admintool) can deep-link
-  // with `?receipt=<base64-json>`. Read once on mount — useMemo, not
-  // useEffect, so the receipt is in place before FullVerifier first
-  // mounts (avoids a render flash with empty fields).
-  const urlReceipt = useMemo(
-    () => loadReceiptFromSearch(typeof window !== 'undefined' ? window.location.search : ''),
+  // with `?receipt=<base64>`. RIP-773 made the payload gzip-compressed
+  // (so realistic pack-config receipts fit under gh-pages' URL
+  // ceiling), which means the decoder is async. We synchronously check
+  // whether the param exists to know if we should hold off rendering
+  // the form (so the user doesn't see empty fields then a flash of
+  // prefilled ones). Decode is fire-and-forget on mount.
+  const hasReceiptParam = useMemo(
+    () =>
+      typeof window !== 'undefined' &&
+      new URLSearchParams(window.location.search).get('receipt') !== null,
     [],
   );
+  const [urlReceipt, setUrlReceipt] = useState<UrlReceiptLoad | undefined>(
+    hasReceiptParam ? undefined : { present: false },
+  );
+  useEffect(() => {
+    if (!hasReceiptParam || typeof window === 'undefined') return;
+    let cancelled = false;
+    loadReceiptFromSearch(window.location.search).then((r) => {
+      if (!cancelled) setUrlReceipt(r);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasReceiptParam]);
   const [tab, setTab] = useState<Tab>('full');
 
   return (
@@ -60,7 +78,14 @@ export function App() {
 
       <main>
         {tab === 'epoch' && <EpochVerifier />}
-        {tab === 'full' && (
+        {tab === 'full' && urlReceipt === undefined && (
+          // Waiting on the async gzip-decode of the URL receipt. The
+          // typical decode is <50ms; we only render this when the URL
+          // actually had a `?receipt=` param so cold loads still get
+          // an instant form.
+          <p class="text-sm text-gray-400">Loading deep-link receipt…</p>
+        )}
+        {tab === 'full' && urlReceipt !== undefined && (
           <FullVerifier
             initialReceipt={urlReceipt.validation?.valid ? urlReceipt.validation.receipt : undefined}
             initialReceiptError={
