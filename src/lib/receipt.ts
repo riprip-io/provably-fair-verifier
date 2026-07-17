@@ -1,6 +1,7 @@
 import { isValidUUID, isValidHex64, validateDrawTablesJSON, MAX_QUANTITY } from './validation';
 
 export interface VerificationReceipt {
+  /** 1 = OPENv1; 2 = OPENv2 (adds the drand entropy fields, RIP-996). */
   version: number;
   serverSecret: string;
   commitHash?: string;
@@ -15,6 +16,16 @@ export interface VerificationReceipt {
     drawsPerOpen: number;
     items: Array<{ sku: string; weight: number }>;
   }>;
+  /**
+   * OPENv2 only (version === 2): drand quicknet entropy. drandRound must be
+   * the first round published strictly after entropyTs; drandRandomness is
+   * SHA256(drandSignature); the signature BLS-verifies against the quicknet
+   * group public key (see lib/openv2.ts).
+   */
+  entropyTs?: number;
+  drandRound?: number;
+  drandRandomness?: string;
+  drandSignature?: string;
 }
 
 export interface ReceiptValidation {
@@ -31,7 +42,7 @@ export function parseReceipt(json: string): ReceiptValidation {
       return { valid: false, error: 'Must be a JSON object' };
     }
 
-    if (parsed.version !== 1) {
+    if (parsed.version !== 1 && parsed.version !== 2) {
       return { valid: false, error: `Unsupported version: ${parsed.version}` };
     }
 
@@ -80,6 +91,34 @@ export function parseReceipt(json: string): ReceiptValidation {
     const drawValidation = validateDrawTablesJSON(JSON.stringify(parsed.drawTables));
     if (!drawValidation.valid) {
       return { valid: false, error: `drawTables: ${drawValidation.error}` };
+    }
+
+    // OPENv2 (RIP-996): the four entropy fields are mandatory — a v2 receipt
+    // without them can never verify.
+    if (parsed.version === 2) {
+      if (typeof parsed.drandRandomness === 'string') parsed.drandRandomness = parsed.drandRandomness.trim();
+      if (typeof parsed.drandSignature === 'string') parsed.drandSignature = parsed.drandSignature.trim();
+
+      if (
+        typeof parsed.entropyTs !== 'number' ||
+        !Number.isInteger(parsed.entropyTs) ||
+        parsed.entropyTs < 0
+      ) {
+        return { valid: false, error: 'Invalid entropyTs (expected non-negative integer, unix seconds)' };
+      }
+      if (
+        typeof parsed.drandRound !== 'number' ||
+        !Number.isInteger(parsed.drandRound) ||
+        parsed.drandRound < 1
+      ) {
+        return { valid: false, error: 'Invalid drandRound (expected positive integer)' };
+      }
+      if (!isValidHex64(parsed.drandRandomness ?? '')) {
+        return { valid: false, error: 'Invalid drandRandomness (expected 64 hex chars)' };
+      }
+      if (typeof parsed.drandSignature !== 'string' || !/^[0-9a-fA-F]{96}$/.test(parsed.drandSignature)) {
+        return { valid: false, error: 'Invalid drandSignature (expected 96 hex chars — BLS G1)' };
+      }
     }
 
     return { valid: true, receipt: parsed as VerificationReceipt };

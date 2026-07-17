@@ -1,6 +1,6 @@
 # RipRip — Provably Fair Verifier
 
-An open-source, 100% client-side tool to independently verify that RipRip pack opening results were computed honestly using the OPENv1 provably-fair RNG protocol.
+An open-source, 100% client-side tool to independently verify that RipRip pack opening results were computed honestly using the OPENv1 / OPENv2 provably-fair RNG protocols.
 
 **[Live Site](https://riprip-io.github.io/provably-fair-verifier/)**
 
@@ -48,12 +48,24 @@ RipRip uses **OPENv1**, an epoch-based commit-reveal scheme:
 
 The server cannot change the secret after committing, and you cannot change your inputs after purchasing. Neither party can influence the outcome.
 
+### OPENv2 (drand beacon entropy)
+
+Newer openings use **OPENv2**, which additionally mixes a [drand](https://drand.love) quicknet public-randomness beacon into every draw. The beacon for the round derived from the opening's settlement timestamp does not exist until *after* the purchase inputs are fixed — so even someone holding the server secret cannot pre-compute an outcome.
+
+For a version-2 receipt this verifier additionally checks, fully offline:
+
+1. **Round rule** — `drandRound` is the first quicknet round published strictly after `entropyTs`
+2. **Randomness integrity** — `drandRandomness = SHA-256(drandSignature)`
+3. **BLS signature** — `drandSignature` verifies against the fixed drand quicknet group public key (BLS12-381, scheme `bls-unchained-g1-rfc9380`)
+
+A green beacon panel means the entropy is authentic League-of-Entropy output — you don't have to trust RipRip *or* the drand relays. You can also cross-check the round yourself: `https://api.drand.sh/52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971/public/<round>`.
+
 ## Auditing This Tool
 
 This verifier is designed to be auditable:
 
 - **100% client-side** — no data leaves your browser (verify in DevTools Network tab)
-- **Minimal dependencies** — Preact (3KB), `@riprip-io/provably-fair`, and `@noble/hashes`
+- **Minimal dependencies** — Preact (3KB), `@riprip-io/provably-fair`, `@noble/hashes`, and `@noble/curves` (BLS verification)
 - **Self-test on load** — runs golden test vectors and shows PASS/FAIL before you use it
 - **Open source** — clone this repo and inspect every line
 
