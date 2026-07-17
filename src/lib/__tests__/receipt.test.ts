@@ -67,6 +67,25 @@ describe('parseReceipt', () => {
     expect(result.receipt!.drandSignature).toBe(V2_ENTROPY.drandSignature);
   });
 
+  it('rejects version 2 with a pre-genesis entropyTs', () => {
+    const result = parseReceipt(makeValidReceipt({ version: 2, ...V2_ENTROPY, entropyTs: 1000 }));
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('entropyTs');
+  });
+
+  it('reports the bad field (not \'Invalid JSON\') for a non-string drandRandomness', () => {
+    const result = parseReceipt(makeValidReceipt({ version: 2, ...V2_ENTROPY, drandRandomness: 12345 }));
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('drandRandomness');
+  });
+
+  it('accepts a 0x-prefixed drandSignature (consistent with other hex fields)', () => {
+    const result = parseReceipt(
+      makeValidReceipt({ version: 2, ...V2_ENTROPY, drandSignature: '0x' + V2_ENTROPY.drandSignature }),
+    );
+    expect(result.valid).toBe(true);
+  });
+
   it('rejects version 2 without entropyTs', () => {
     const { entropyTs: _omit, ...rest } = V2_ENTROPY;
     const result = parseReceipt(makeValidReceipt({ version: 2, ...rest }));

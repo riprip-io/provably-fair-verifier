@@ -8,6 +8,12 @@ import {
 } from '@riprip-io/provably-fair';
 import { bytesToHex, parseHex } from '../lib/hex';
 import { buildMessageV2, resolveOpenBatchV2, verifyBeaconBLS } from '../lib/openv2';
+import {
+  V2_DRAND_ROUND,
+  V2_DRAND_RANDOMNESS_HEX,
+  V2_DRAND_SIGNATURE_HEX,
+  V2_EXPECTED_DRAWS,
+} from '../lib/__fixtures__/openv2-vectors';
 
 type Status = 'running' | 'pass' | 'fail';
 
@@ -82,18 +88,13 @@ export function SelfTestBanner() {
       assert(result.draws[2].selectedItem === 'COMMON', 'draw 2 selection mismatch');
 
       // 6. OPENv2 (RIP-996) — frozen vectors pinned to REAL quicknet round
-      //    1000 (independently fetchable from any drand relay).
-      const drandRound = 1000;
-      const drandRandomness = parseHex(
-        'fe290beca10872ef2fb164d2aa4442de4566183ec51c56ff3cd603d930e54fdd',
-      );
-      const drandSignature = parseHex(
-        'b44679b9a59af2ec876b1a6b1ad52ea9b1615fc3982b19576350f93447cb1125e342b73a8dd2bacbe47e4b6b63ed5e39',
-      );
+      //    1000 (shared fixture module, matching the monorepo goldens).
+      const drandRandomness = parseHex(V2_DRAND_RANDOMNESS_HEX);
+      const entropy = { drandRound: V2_DRAND_ROUND, drandRandomness };
 
       const msgV2 = buildMessageV2(
         { epochId, userKey, purchaseNonce, packConfigHash, openIndex: 0, drawIndex: 0, clientSeedHash: csh },
-        { drandRound, drandRandomness },
+        entropy,
       );
       assert(msgV2.length === 162, 'OPENv2 message length mismatch');
       assert(
@@ -108,21 +109,27 @@ export function SelfTestBanner() {
         purchaseNonce,
         packConfigHash,
         csh,
-        { drandRound, drandRandomness },
+        entropy,
         1,
         drawTables,
       );
       const v2draws = v2.results[0].draws;
-      assert(v2draws[0].ticket === 499169 && v2draws[0].selectedItem === 'COMMON', 'v2 draw 0 mismatch');
-      assert(v2draws[1].ticket === 811907 && v2draws[1].selectedItem === 'COMMON', 'v2 draw 1 mismatch');
-      assert(v2draws[2].ticket === 555714 && v2draws[2].selectedItem === 'COMMON', 'v2 draw 2 mismatch');
+      for (const expected of V2_EXPECTED_DRAWS) {
+        const d = v2draws[expected.drawIndex];
+        assert(
+          d.ticket === expected.ticket && d.selectedItem === expected.selectedItem,
+          `v2 draw ${expected.drawIndex} mismatch`,
+        );
+      }
 
-      // 7. BLS: the real round-1000 signature must verify against the
-      //    quicknet group key; a tampered one must not.
-      assert(verifyBeaconBLS(drandRound, drandSignature), 'BLS verify should pass for real beacon');
-      const tampered = parseHex(bytesToHex(drandSignature));
-      tampered[5] ^= 1;
-      assert(!verifyBeaconBLS(drandRound, tampered), 'BLS verify should fail for tampered beacon');
+      // 7. BLS: single positive check against the quicknet group key. The
+      //    tampered-signature negative case lives in openv2.test.ts — one
+      //    JS pairing (~50-100ms) is already the priciest part of this
+      //    banner and OPENv1-only visitors pay it too.
+      assert(
+        verifyBeaconBLS(V2_DRAND_ROUND, parseHex(V2_DRAND_SIGNATURE_HEX)),
+        'BLS verify should pass for real beacon',
+      );
 
       setStatus('pass');
     } catch (e) {

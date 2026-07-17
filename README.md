@@ -58,7 +58,7 @@ For a version-2 receipt this verifier additionally checks, fully offline:
 2. **Randomness integrity** — `drandRandomness = SHA-256(drandSignature)`
 3. **BLS signature** — `drandSignature` verifies against the fixed drand quicknet group public key (BLS12-381, scheme `bls-unchained-g1-rfc9380`)
 
-A green beacon panel means the entropy is authentic League-of-Entropy output — you don't have to trust RipRip *or* the drand relays. You can also cross-check the round yourself: `https://api.drand.sh/52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971/public/<round>`.
+A green beacon panel proves the entropy is authentic League-of-Entropy output **for the stated entropy timestamp** — without trusting RipRip or the drand relays. The one thing the offline checks cannot prove is that the timestamp itself matches your purchase: cross-check `entropyTs` against your actual settlement/claim time (it should agree to within seconds), and optionally fetch the round from any relay yourself: `https://api.drand.sh/52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971/public/<round>`.
 
 ## Auditing This Tool
 

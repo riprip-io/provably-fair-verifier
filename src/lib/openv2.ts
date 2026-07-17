@@ -26,6 +26,7 @@ import {
 } from '@riprip-io/provably-fair';
 import { bls12_381 } from '@noble/curves/bls12-381.js';
 import { sha256 } from '@noble/hashes/sha256';
+import { hexToBytes } from '@noble/hashes/utils';
 
 // ── drand quicknet chain parameters (FROZEN protocol constants) ──
 
@@ -38,6 +39,10 @@ export const QUICKNET_PUBLIC_KEY =
   '83cf0f2896adee7eb8b5f01fcad3912212c437e0073e911fb90022d3e760183c8c4b450b6a0a6c3ac6a5776a2d1064510d1fec758c921cc22b0e17e63aaf4bcb5ed66304de9cf809bd274ca73bab4af5a6e9c76a4bc09e76eae8991ef5ece45a';
 
 const TAG_V2 = new TextEncoder().encode('OPENv2'); // 6 bytes
+
+// Parsed once at module scope — the group key is a fixed protocol constant
+// and G2 decompression is not free.
+const QUICKNET_PUBLIC_KEY_BYTES = hexToBytes(QUICKNET_PUBLIC_KEY);
 
 /** Unix seconds at which a given quicknet round is published. */
 export function roundPublishTime(round: number): number {
@@ -148,17 +153,10 @@ export function verifyBeaconBLS(round: number, signature: Uint8Array): boolean {
     const ss = bls12_381.shortSignatures;
     const sigPoint = ss.Signature.fromBytes(signature);
     const msgPoint = ss.hash(msg);
-    return ss.verify(sigPoint, msgPoint, hexToBytesLocal(QUICKNET_PUBLIC_KEY));
+    return ss.verify(sigPoint, msgPoint, QUICKNET_PUBLIC_KEY_BYTES);
   } catch {
     return false;
   }
-}
-
-// Local hex helper (lib/hex.ts is UI-oriented; keep this module standalone).
-function hexToBytesLocal(hex: string): Uint8Array {
-  const out = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  return out;
 }
 
 // ── Combined entropy check for the UI ──
@@ -181,8 +179,16 @@ export function checkEntropy(params: {
   drandRandomness: Uint8Array;
   drandSignature: Uint8Array;
 }): EntropyCheckResult {
-  const expectedRound = roundForTimestamp(params.entropyTs);
-  const roundRuleValid = expectedRound === params.drandRound;
+  // A pre-genesis / malformed timestamp is a FAILED round rule, never a
+  // throw — the UI must always render the per-check panel.
+  let expectedRound = 0;
+  let roundRuleValid = false;
+  try {
+    expectedRound = roundForTimestamp(params.entropyTs);
+    roundRuleValid = expectedRound === params.drandRound;
+  } catch {
+    // expectedRound stays 0 → round rule fails with an obvious sentinel.
+  }
   const sha256Valid = verifyBeaconSha256(params.drandSignature, params.drandRandomness);
   const blsValid = verifyBeaconBLS(params.drandRound, params.drandSignature);
   return {

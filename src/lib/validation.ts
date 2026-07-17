@@ -13,6 +13,12 @@ export function isValidHex64(value: string): boolean {
   return /^[0-9a-fA-F]{64}$/.test(stripped);
 }
 
+/** 96 hex chars (BLS12-381 G1 signature) — same 0x/trim tolerance as isValidHex64. */
+export function isValidHex96(value: string): boolean {
+  const stripped = value.trim().startsWith('0x') ? value.trim().slice(2) : value.trim();
+  return /^[0-9a-fA-F]{96}$/.test(stripped);
+}
+
 export function isPositiveInteger(value: string): boolean {
   return /^\d+$/.test(value.trim()) && parseInt(value.trim(), 10) > 0;
 }

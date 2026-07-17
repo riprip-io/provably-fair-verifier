@@ -8,7 +8,7 @@ import {
   type OpenBatchResult,
 } from '@riprip-io/provably-fair';
 import { parseHex, bytesToHex } from '../lib/hex';
-import { isValidUUID, isValidHex64, isNonNegativeInteger, isPositiveInteger, validateDrawTablesJSON, MAX_QUANTITY } from '../lib/validation';
+import { isValidUUID, isValidHex64, isValidHex96, isNonNegativeInteger, isPositiveInteger, validateDrawTablesJSON, MAX_QUANTITY } from '../lib/validation';
 import { resolveOpenBatchV2, checkEntropy, type EntropyCheckResult } from '../lib/openv2';
 import type { VerificationReceipt } from '../lib/receipt';
 import { ReceiptImport } from './receipt-import';
@@ -69,28 +69,36 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
   const [error, setError] = useState(initialReceiptError ?? '');
 
   function handleImport(receipt: VerificationReceipt) {
-    setServerSecret(receipt.serverSecret);
-    setCommitHash(receipt.commitHash ?? '');
-    setUserId(receipt.userId);
-    setClientSeed(receipt.clientSeed);
-    setPurchaseNonce(String(receipt.purchaseNonce));
-    setEpochId(String(receipt.epochId));
-    setPackConfigHash(receipt.packConfigHash);
-    setQuantity(String(receipt.quantity));
-    setDrawTablesJson(JSON.stringify(receipt.drawTables, null, 2));
-    setIsV2(receipt.version === 2);
-    setEntropyTs(receipt.entropyTs != null ? String(receipt.entropyTs) : '');
-    setDrandRound(receipt.drandRound != null ? String(receipt.drandRound) : '');
-    setDrandRandomness(receipt.drandRandomness ?? '');
-    setDrandSignature(receipt.drandSignature ?? '');
+    // Single source of the receipt→form mapping: preloadFromReceipt.
+    const f = preloadFromReceipt(receipt);
+    setServerSecret(f.serverSecret);
+    setCommitHash(f.commitHash);
+    setUserId(f.userId);
+    setClientSeed(f.clientSeed);
+    setPurchaseNonce(f.purchaseNonce);
+    setEpochId(f.epochId);
+    setPackConfigHash(f.packConfigHash);
+    setQuantity(f.quantity);
+    setDrawTablesJson(f.drawTablesJson);
+    setIsV2(f.isV2);
+    setEntropyTs(f.entropyTs);
+    setDrandRound(f.drandRound);
+    setDrandRandomness(f.drandRandomness);
+    setDrandSignature(f.drandSignature);
+    // Fresh inputs invalidate any previous verification output.
+    clearOutputs();
   }
 
-  function handleVerify() {
+  function clearOutputs() {
     setResults(null);
     setEntropyCheck(null);
     setEpochCheck(null);
     setIntermediates(null);
     setError('');
+  }
+
+  function handleVerify() {
+    clearOutputs();
 
     // Validate inputs
     if (!isValidHex64(serverSecret)) {
@@ -140,6 +148,18 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
       return;
     }
 
+    // Protocol downgrade guard (RIP-996): entropy inputs present while
+    // OPENv1 is selected would silently skip beacon authentication and
+    // replay the draws under the wrong message format — refuse.
+    const hasEntropyInput =
+      Boolean(entropyTs.trim() || drandRound.trim() || drandRandomness.trim() || drandSignature.trim());
+    if (!isV2 && hasEntropyInput) {
+      setError(
+        'These inputs include OPENv2 drand entropy. Select OPENv2 to verify them (or clear the four entropy fields to verify as OPENv1).',
+      );
+      return;
+    }
+
     // OPENv2 entropy inputs (RIP-996)
     if (isV2) {
       if (!isNonNegativeInteger(entropyTs)) {
@@ -154,18 +174,18 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
         setError('drand Randomness must be 64 hex characters');
         return;
       }
-      if (!/^[0-9a-fA-F]{96}$/.test(drandSignature.trim())) {
+      if (!isValidHex96(drandSignature)) {
         setError('drand Signature must be 96 hex characters (BLS G1)');
         return;
       }
     }
 
     try {
-      const secretBytes = parseHex(serverSecret);
+      const secretBytes = parseHex(serverSecret.trim());
 
       // Epoch check (optional)
       if (commitHash) {
-        const hashBytes = parseHex(commitHash);
+        const hashBytes = parseHex(commitHash.trim());
         const computed = commitEpoch(secretBytes);
         const valid = verifyEpoch(secretBytes, hashBytes);
         setEpochCheck({ valid, computedHash: bytesToHex(computed) });
@@ -180,18 +200,31 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
         clientSeedHash: bytesToHex(clientSeedHash),
       });
 
+      // Parse every hex input up front (validators tolerate whitespace and
+      // 0x prefixes; parseHex must see the trimmed value) so no throw can
+      // happen after partial output state is committed.
+      const packConfigHashBytes = parseHex(packConfigHash.trim());
+      const drandRandomnessBytes = isV2 ? parseHex(drandRandomness.trim()) : null;
+      const drandSignatureBytes = isV2 ? parseHex(drandSignature.trim()) : null;
+      const drandRoundNum = isV2 ? parseInt(drandRound.trim(), 10) : 0;
+
       // OPENv2: authenticate the beacon BEFORE replaying draws. All three
       // checks run fully offline (round rule, sha256(sig)==randomness, BLS
-      // against the quicknet group key) — no relay or RipRip trust needed.
+      // against the quicknet group key).
+      let check: EntropyCheckResult | null = null;
       if (isV2) {
-        const check = checkEntropy({
-          entropyTs: parseInt(entropyTs, 10),
-          drandRound: parseInt(drandRound, 10),
-          drandRandomness: parseHex(drandRandomness),
-          drandSignature: parseHex(drandSignature),
+        check = checkEntropy({
+          entropyTs: parseInt(entropyTs.trim(), 10),
+          drandRound: drandRoundNum,
+          drandRandomness: drandRandomnessBytes!,
+          drandSignature: drandSignatureBytes!,
         });
-        setEntropyCheck(check);
-        if (!check.valid) return;
+        if (!check.valid) {
+          // Failed authentication renders the per-check panel and stops —
+          // draws are never replayed against unauthenticated entropy.
+          setEntropyCheck(check);
+          return;
+        }
       }
 
       // Resolve all opens — protocol dispatch on the receipt version.
@@ -201,9 +234,9 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
             parseInt(epochId, 10),
             userKey,
             BigInt(purchaseNonce),
-            parseHex(packConfigHash),
+            packConfigHashBytes,
             clientSeedHash,
-            { drandRound: parseInt(drandRound, 10), drandRandomness: parseHex(drandRandomness) },
+            { drandRound: drandRoundNum, drandRandomness: drandRandomnessBytes! },
             parseInt(quantity, 10),
             drawValidation.tables!,
           )
@@ -212,12 +245,15 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
             parseInt(epochId, 10),
             userKey,
             BigInt(purchaseNonce),
-            parseHex(packConfigHash),
+            packConfigHashBytes,
             clientSeedHash,
             parseInt(quantity, 10),
             drawValidation.tables!,
           );
 
+      // Commit the passing entropy panel and the results TOGETHER — a green
+      // "authenticated" panel must never outlive a failed verification.
+      if (check) setEntropyCheck(check);
       setResults(batchResult);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Verification failed');
@@ -263,7 +299,10 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
             <span class="text-sm font-medium text-gray-300">Version</span>
             <select
               value={isV2 ? 'OPENv2' : 'OPENv1'}
-              onChange={(e) => setIsV2((e.target as HTMLSelectElement).value === 'OPENv2')}
+              onChange={(e) => {
+                setIsV2((e.target as HTMLSelectElement).value === 'OPENv2');
+                clearOutputs();
+              }}
               class="mt-1 block w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-sm text-gray-100 focus:outline-none focus:border-emerald-500"
             >
               <option value="OPENv1">OPENv1</option>
@@ -337,6 +376,13 @@ function EntropyChecks({ check }: { check: EntropyCheckResult }) {
       <div class={`font-semibold ${check.valid ? 'text-emerald-400' : 'text-red-300'}`}>
         drand beacon {check.valid ? 'authenticated' : 'FAILED authentication'}
       </div>
+      {check.valid && (
+        <div class="text-xs text-gray-400">
+          Proves the beacon is genuine League-of-Entropy output for the stated entropy
+          timestamp. Cross-check that timestamp against your purchase/settlement time —
+          it should match when your payment settled (or your award claim).
+        </div>
+      )}
       {row(
         check.roundRuleValid,
         'Round rule',

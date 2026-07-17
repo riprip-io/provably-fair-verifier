@@ -1,4 +1,5 @@
-import { isValidUUID, isValidHex64, validateDrawTablesJSON, MAX_QUANTITY } from './validation';
+import { isValidUUID, isValidHex64, isValidHex96, validateDrawTablesJSON, MAX_QUANTITY } from './validation';
+import { QUICKNET_GENESIS_TIME } from './openv2';
 
 export interface VerificationReceipt {
   /** 1 = OPENv1; 2 = OPENv2 (adds the drand entropy fields, RIP-996). */
@@ -102,9 +103,12 @@ export function parseReceipt(json: string): ReceiptValidation {
       if (
         typeof parsed.entropyTs !== 'number' ||
         !Number.isInteger(parsed.entropyTs) ||
-        parsed.entropyTs < 0
+        parsed.entropyTs < QUICKNET_GENESIS_TIME
       ) {
-        return { valid: false, error: 'Invalid entropyTs (expected non-negative integer, unix seconds)' };
+        return {
+          valid: false,
+          error: `Invalid entropyTs (expected integer unix seconds ≥ quicknet genesis ${QUICKNET_GENESIS_TIME})`,
+        };
       }
       if (
         typeof parsed.drandRound !== 'number' ||
@@ -113,10 +117,10 @@ export function parseReceipt(json: string): ReceiptValidation {
       ) {
         return { valid: false, error: 'Invalid drandRound (expected positive integer)' };
       }
-      if (!isValidHex64(parsed.drandRandomness ?? '')) {
+      if (typeof parsed.drandRandomness !== 'string' || !isValidHex64(parsed.drandRandomness)) {
         return { valid: false, error: 'Invalid drandRandomness (expected 64 hex chars)' };
       }
-      if (typeof parsed.drandSignature !== 'string' || !/^[0-9a-fA-F]{96}$/.test(parsed.drandSignature)) {
+      if (typeof parsed.drandSignature !== 'string' || !isValidHex96(parsed.drandSignature)) {
         return { valid: false, error: 'Invalid drandSignature (expected 96 hex chars — BLS G1)' };
       }
     }
