@@ -43,10 +43,76 @@ describe('parseReceipt', () => {
     expect(result.error).toContain('JSON object');
   });
 
-  it('rejects version !== 1', () => {
-    const result = parseReceipt(makeValidReceipt({ version: 2 }));
+  it('rejects unknown versions', () => {
+    const result = parseReceipt(makeValidReceipt({ version: 3 }));
     expect(result.valid).toBe(false);
     expect(result.error).toContain('version');
+  });
+
+  // ── OPENv2 (RIP-996 / RIP-1010) ──
+
+  const V2_ENTROPY = {
+    entropyTs: 1692806361,
+    drandRound: 1000,
+    drandRandomness: 'fe290beca10872ef2fb164d2aa4442de4566183ec51c56ff3cd603d930e54fdd',
+    drandSignature:
+      'b44679b9a59af2ec876b1a6b1ad52ea9b1615fc3982b19576350f93447cb1125e342b73a8dd2bacbe47e4b6b63ed5e39',
+  };
+
+  it('accepts a valid version-2 receipt with entropy fields', () => {
+    const result = parseReceipt(makeValidReceipt({ version: 2, ...V2_ENTROPY }));
+    expect(result.valid).toBe(true);
+    expect(result.receipt!.version).toBe(2);
+    expect(result.receipt!.drandRound).toBe(1000);
+    expect(result.receipt!.drandSignature).toBe(V2_ENTROPY.drandSignature);
+  });
+
+  it('rejects version 2 with a pre-genesis entropyTs', () => {
+    const result = parseReceipt(makeValidReceipt({ version: 2, ...V2_ENTROPY, entropyTs: 1000 }));
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('entropyTs');
+  });
+
+  it('reports the bad field (not \'Invalid JSON\') for a non-string drandRandomness', () => {
+    const result = parseReceipt(makeValidReceipt({ version: 2, ...V2_ENTROPY, drandRandomness: 12345 }));
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('drandRandomness');
+  });
+
+  it('accepts a 0x-prefixed drandSignature (consistent with other hex fields)', () => {
+    const result = parseReceipt(
+      makeValidReceipt({ version: 2, ...V2_ENTROPY, drandSignature: '0x' + V2_ENTROPY.drandSignature }),
+    );
+    expect(result.valid).toBe(true);
+  });
+
+  it('rejects version 2 without entropyTs', () => {
+    const { entropyTs: _omit, ...rest } = V2_ENTROPY;
+    const result = parseReceipt(makeValidReceipt({ version: 2, ...rest }));
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('entropyTs');
+  });
+
+  it('rejects version 2 with a malformed drandRandomness', () => {
+    const result = parseReceipt(
+      makeValidReceipt({ version: 2, ...V2_ENTROPY, drandRandomness: 'zz'.repeat(32) }),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('drandRandomness');
+  });
+
+  it('rejects version 2 with a wrong-length drandSignature', () => {
+    const result = parseReceipt(
+      makeValidReceipt({ version: 2, ...V2_ENTROPY, drandSignature: 'ab'.repeat(10) }),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('drandSignature');
+  });
+
+  it('does not require entropy fields on version 1', () => {
+    const result = parseReceipt(makeValidReceipt({}));
+    expect(result.valid).toBe(true);
+    expect(result.receipt!.drandRound).toBeUndefined();
   });
 
   it('rejects invalid serverSecret', () => {

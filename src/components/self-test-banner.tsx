@@ -6,7 +6,14 @@ import {
   verifyEpoch,
   resolveOpen,
 } from '@riprip-io/provably-fair';
-import { bytesToHex } from '../lib/hex';
+import { bytesToHex, parseHex } from '../lib/hex';
+import { buildMessageV2, resolveOpenBatchV2, verifyBeaconBLS } from '../lib/openv2';
+import {
+  V2_DRAND_ROUND,
+  V2_DRAND_RANDOMNESS_HEX,
+  V2_DRAND_SIGNATURE_HEX,
+  V2_EXPECTED_DRAWS,
+} from '../lib/__fixtures__/openv2-vectors';
 
 type Status = 'running' | 'pass' | 'fail';
 
@@ -79,6 +86,50 @@ export function SelfTestBanner() {
       assert(result.draws[1].selectedItem === 'COMMON', 'draw 1 selection mismatch');
       assert(result.draws[2].ticket === 437127, 'draw 2 ticket mismatch');
       assert(result.draws[2].selectedItem === 'COMMON', 'draw 2 selection mismatch');
+
+      // 6. OPENv2 (RIP-996) — frozen vectors pinned to REAL quicknet round
+      //    1000 (shared fixture module, matching the monorepo goldens).
+      const drandRandomness = parseHex(V2_DRAND_RANDOMNESS_HEX);
+      const entropy = { drandRound: V2_DRAND_ROUND, drandRandomness };
+
+      const msgV2 = buildMessageV2(
+        { epochId, userKey, purchaseNonce, packConfigHash, openIndex: 0, drawIndex: 0, clientSeedHash: csh },
+        entropy,
+      );
+      assert(msgV2.length === 162, 'OPENv2 message length mismatch');
+      assert(
+        bytesToHex(msgV2.slice(0, 6)) === '4f50454e7632', // "OPENv2"
+        'OPENv2 tag mismatch',
+      );
+
+      const v2 = resolveOpenBatchV2(
+        serverSecret,
+        epochId,
+        userKey,
+        purchaseNonce,
+        packConfigHash,
+        csh,
+        entropy,
+        1,
+        drawTables,
+      );
+      const v2draws = v2.results[0].draws;
+      for (const expected of V2_EXPECTED_DRAWS) {
+        const d = v2draws[expected.drawIndex];
+        assert(
+          d.ticket === expected.ticket && d.selectedItem === expected.selectedItem,
+          `v2 draw ${expected.drawIndex} mismatch`,
+        );
+      }
+
+      // 7. BLS: single positive check against the quicknet group key. The
+      //    tampered-signature negative case lives in openv2.test.ts — one
+      //    JS pairing (~50-100ms) is already the priciest part of this
+      //    banner and OPENv1-only visitors pay it too.
+      assert(
+        verifyBeaconBLS(V2_DRAND_ROUND, parseHex(V2_DRAND_SIGNATURE_HEX)),
+        'BLS verify should pass for real beacon',
+      );
 
       setStatus('pass');
     } catch (e) {
