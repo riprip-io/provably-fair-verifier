@@ -7,29 +7,14 @@ import {
   resolveOpenBatch,
   type OpenBatchResult,
 } from '@riprip-io/provably-fair';
-import { parseHex, bytesToHex, normalizeHex } from '../lib/hex';
+import { parseHex, bytesToHex } from '../lib/hex';
 import { isValidUUID, isValidHex64, isValidHex96, isNonNegativeInteger, isPositiveInteger, validateDrawTablesJSON, MAX_QUANTITY } from '../lib/validation';
 import { resolveOpenBatchV2, checkEntropy, type EntropyCheckResult } from '../lib/openv2';
 import type { VerificationReceipt } from '../lib/receipt';
 import { ReceiptImport } from './receipt-import';
 import { DrawTablesInput } from './draw-tables-input';
 import { ResultsDisplay } from './results-display';
-
-/**
- * Outcome of the OPENv1/OPENv2 commit-reveal check.
- *
- * RIP-1237: this is rendered by `EpochCheckBanner` OUTSIDE the `results`
- * guard. A failed reveal stops the run before any draws exist, so a banner
- * that only mounts alongside results silently swallows the single most
- * important verdict this tool produces.
- */
-interface EpochCheckOutcome {
-  valid: boolean;
-  /** sha256(serverSecret) — what the supplied secret actually hashes to. */
-  computedHash: string;
-  /** The commitment the user supplied, normalized, snapshotted at verify time. */
-  commitHash: string;
-}
+import { EpochVerdictBanner, type EpochVerdict } from './epoch-verdict';
 
 interface FullVerifierProps {
   /**
@@ -80,7 +65,7 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
 
   const [results, setResults] = useState<OpenBatchResult | null>(null);
   const [entropyCheck, setEntropyCheck] = useState<EntropyCheckResult | null>(null);
-  const [epochCheck, setEpochCheck] = useState<EpochCheckOutcome | null>(null);
+  const [epochCheck, setEpochCheck] = useState<EpochVerdict | null>(null);
   const [intermediates, setIntermediates] = useState<{ userKey: string; clientSeedHash: string } | null>(null);
   const [error, setError] = useState(initialReceiptError ?? '');
 
@@ -105,6 +90,24 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
     clearOutputs();
   }
 
+  // Any edit voids the previous run's output. The version <select> and the
+  // receipt import already did this; the text fields did not, which left a
+  // verdict standing beside inputs that did not produce it. For a trust tool
+  // that is the same class of lie as showing no verdict at all (RIP-1237).
+  const hasOutput =
+    results !== null ||
+    epochCheck !== null ||
+    entropyCheck !== null ||
+    intermediates !== null ||
+    error !== '';
+
+  function edited(setter: (v: string) => void): (v: string) => void {
+    return (v: string) => {
+      setter(v);
+      if (hasOutput) clearOutputs();
+    };
+  }
+
   function clearOutputs() {
     setResults(null);
     setEntropyCheck(null);
@@ -121,7 +124,8 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
       setError('Server Secret must be 64 hex characters');
       return;
     }
-    if (commitHash && !isValidHex64(commitHash)) {
+    const trimmedCommitHash = commitHash.trim();
+    if (trimmedCommitHash && !isValidHex64(trimmedCommitHash)) {
       setError('Commit Hash must be 64 hex characters (or leave empty to skip epoch check)');
       return;
     }
@@ -199,22 +203,28 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
     try {
       const secretBytes = parseHex(serverSecret.trim());
 
-      // Epoch check (optional)
-      if (commitHash) {
-        const trimmedCommitHash = commitHash.trim();
+      // Epoch check. The commitment is optional, but its ABSENCE is itself a
+      // verdict the user has to see: without it nothing proves the server
+      // secret was fixed before the purchase, and a silent skip renders as an
+      // ordinary green results table (RIP-1237).
+      const computedHash = bytesToHex(commitEpoch(secretBytes));
+      if (trimmedCommitHash) {
         const hashBytes = parseHex(trimmedCommitHash);
-        const computed = commitEpoch(secretBytes);
         const valid = verifyEpoch(secretBytes, hashBytes);
         setEpochCheck({
-          valid,
-          computedHash: bytesToHex(computed),
-          commitHash: normalizeHex(trimmedCommitHash),
+          status: valid ? 'valid' : 'invalid',
+          computedHash,
+          // Snapshot the bytes verifyEpoch actually compared, so the banner
+          // can never show a hash pair that was not the one checked.
+          commitHash: bytesToHex(hashBytes),
         });
         // A failed reveal stops the run — draws are NEVER replayed against a
         // secret that does not open the published commitment. The verdict
-        // stays visible because EpochCheckBanner renders outside the
-        // `results` guard (RIP-1237).
+        // stays visible because EpochVerdictBanner renders outside the
+        // `results` guard.
         if (!valid) return;
+      } else {
+        setEpochCheck({ status: 'skipped', computedHash });
       }
 
       // Derive intermediate values
@@ -227,7 +237,9 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
 
       // Parse every hex input up front (validators tolerate whitespace and
       // 0x prefixes; parseHex must see the trimmed value) so no throw can
-      // happen after partial output state is committed.
+      // happen after RESULTS are committed. The epoch verdict above is
+      // committed earlier on purpose — it is valid on its own, and a throw
+      // after it still renders the verdict plus an error banner.
       const packConfigHashBytes = parseHex(packConfigHash.trim());
       const drandRandomnessBytes = isV2 ? parseHex(drandRandomness.trim()) : null;
       const drandSignatureBytes = isV2 ? parseHex(drandSignature.trim()) : null;
@@ -297,24 +309,24 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
         {/* Epoch Section */}
         <fieldset class="space-y-3">
           <legend class="text-xs font-semibold uppercase tracking-wider text-gray-500">Epoch</legend>
-          <Field label="Server Secret" value={serverSecret} onInput={setServerSecret} placeholder="64 hex characters" />
-          <Field label="Commit Hash (optional)" value={commitHash} onInput={setCommitHash} placeholder="64 hex characters — skip to omit epoch check" />
+          <Field label="Server Secret" value={serverSecret} onInput={edited(setServerSecret)} placeholder="64 hex characters" />
+          <Field label="Commit Hash (optional)" value={commitHash} onInput={edited(setCommitHash)} placeholder="64 hex characters — skip to omit epoch check" />
         </fieldset>
 
         {/* User Section */}
         <fieldset class="space-y-3">
           <legend class="text-xs font-semibold uppercase tracking-wider text-gray-500">User</legend>
-          <Field label="User ID" value={userId} onInput={setUserId} placeholder="UUID (e.g. 550e8400-e29b-41d4-a716-446655440000)" />
-          <Field label="Client Seed" value={clientSeed} onInput={setClientSeed} placeholder="64 hex characters (your random seed)" />
-          <Field label="Purchase Nonce" value={purchaseNonce} onInput={setPurchaseNonce} placeholder="Non-negative integer" />
+          <Field label="User ID" value={userId} onInput={edited(setUserId)} placeholder="UUID (e.g. 550e8400-e29b-41d4-a716-446655440000)" />
+          <Field label="Client Seed" value={clientSeed} onInput={edited(setClientSeed)} placeholder="64 hex characters (your random seed)" />
+          <Field label="Purchase Nonce" value={purchaseNonce} onInput={edited(setPurchaseNonce)} placeholder="Non-negative integer" />
         </fieldset>
 
         {/* Pack Section */}
         <fieldset class="space-y-3">
           <legend class="text-xs font-semibold uppercase tracking-wider text-gray-500">Pack</legend>
-          <Field label="Epoch ID" value={epochId} onInput={setEpochId} placeholder="YYYYMMDD (e.g. 20260210)" />
-          <Field label="Pack Config Hash" value={packConfigHash} onInput={setPackConfigHash} placeholder="64 hex characters" />
-          <Field label="Quantity" value={quantity} onInput={setQuantity} placeholder="Number of packs in batch" />
+          <Field label="Epoch ID" value={epochId} onInput={edited(setEpochId)} placeholder="YYYYMMDD (e.g. 20260210)" />
+          <Field label="Pack Config Hash" value={packConfigHash} onInput={edited(setPackConfigHash)} placeholder="64 hex characters" />
+          <Field label="Quantity" value={quantity} onInput={edited(setQuantity)} placeholder="Number of packs in batch" />
         </fieldset>
 
         {/* Protocol (RIP-996: OPENv2 adds drand beacon entropy) */}
@@ -336,10 +348,10 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
           </label>
           {isV2 && (
             <>
-              <Field label="Entropy Timestamp" value={entropyTs} onInput={setEntropyTs} placeholder="Unix seconds that anchored the drand round" />
-              <Field label="drand Round" value={drandRound} onInput={setDrandRound} placeholder="Positive integer (quicknet round number)" />
-              <Field label="drand Randomness" value={drandRandomness} onInput={setDrandRandomness} placeholder="64 hex characters" />
-              <Field label="drand Signature" value={drandSignature} onInput={setDrandSignature} placeholder="96 hex characters (BLS G1 signature)" />
+              <Field label="Entropy Timestamp" value={entropyTs} onInput={edited(setEntropyTs)} placeholder="Unix seconds that anchored the drand round" />
+              <Field label="drand Round" value={drandRound} onInput={edited(setDrandRound)} placeholder="Positive integer (quicknet round number)" />
+              <Field label="drand Randomness" value={drandRandomness} onInput={edited(setDrandRandomness)} placeholder="64 hex characters" />
+              <Field label="drand Signature" value={drandSignature} onInput={edited(setDrandSignature)} placeholder="96 hex characters (BLS G1 signature)" />
             </>
           )}
         </fieldset>
@@ -347,7 +359,7 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
         {/* Draw Tables */}
         <fieldset class="space-y-3">
           <legend class="text-xs font-semibold uppercase tracking-wider text-gray-500">Draw Tables</legend>
-          <DrawTablesInput value={drawTablesJson} onInput={setDrawTablesJson} />
+          <DrawTablesInput value={drawTablesJson} onInput={edited(setDrawTablesJson)} />
         </fieldset>
 
         <button
@@ -364,52 +376,11 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
         </div>
       )}
 
-      {epochCheck && <EpochCheckBanner check={epochCheck} />}
+      {epochCheck && <EpochVerdictBanner verdict={epochCheck} />}
 
       {entropyCheck && <EntropyChecks check={entropyCheck} />}
 
       {results && <ResultsDisplay results={results} intermediates={intermediates} />}
-    </div>
-  );
-}
-
-/**
- * Epoch commit-reveal verdict (RIP-1237).
- *
- * Rendered independently of `results` so a FAILED reveal — which stops the
- * run before any draws are replayed — is always visible. Showing nothing is
- * indistinguishable from "the tool is broken", which is the worst possible
- * answer for a trust tool.
- */
-function EpochCheckBanner({ check }: { check: EpochCheckOutcome }) {
-  return (
-    <div
-      class={`mt-4 p-3 rounded border text-sm space-y-2 ${
-        check.valid
-          ? 'bg-emerald-900/40 border-emerald-700 text-emerald-300'
-          : 'bg-red-900/40 border-red-700 text-red-300'
-      }`}
-    >
-      <div class="font-semibold">Epoch: {check.valid ? 'VALID' : 'INVALID'}</div>
-      {!check.valid && (
-        <div class="text-xs text-red-200">
-          The revealed server secret does not hash to the published commit hash, so it is
-          not the secret that was committed to before this epoch began. Draws were not
-          replayed — no result below can be trusted.
-        </div>
-      )}
-      {/* The two hashes the user is being asked to compare — kept at
-          readable contrast on both the green and the red background. */}
-      <div class="text-xs text-gray-200 break-all font-mono space-y-0.5">
-        <p>
-          <span class="text-gray-400">sha256(server secret): </span>
-          {check.computedHash}
-        </p>
-        <p>
-          <span class="text-gray-400">published commit hash:&nbsp;</span>
-          {check.commitHash}
-        </p>
-      </div>
     </div>
   );
 }

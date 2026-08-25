@@ -26,6 +26,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Gate the deploy on the suite. This repo publishes a public trust tool
+      # on every push to main with no PR CI, so without this step a
+      # regression can only be found after it is already live (RIP-1237).
+      - run: npm test
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:

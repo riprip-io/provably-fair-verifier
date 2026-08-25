@@ -2,16 +2,14 @@ import { useState } from 'preact/hooks';
 import { verifyEpoch, commitEpoch } from '@riprip-io/provably-fair';
 import { parseHex, bytesToHex } from '../lib/hex';
 import { isValidHex64 } from '../lib/validation';
-
-interface EpochResult {
-  valid: boolean;
-  computedHash: string;
-}
+import { EpochVerdictBanner, type EpochVerdict } from './epoch-verdict';
 
 export function EpochVerifier() {
   const [serverSecret, setServerSecret] = useState('');
   const [commitHash, setCommitHash] = useState('');
-  const [result, setResult] = useState<EpochResult | null>(null);
+  // Same renderer as the Full Verification tab — one verdict, one wording,
+  // one hash pair. These two surfaces had already drifted (RIP-1237).
+  const [result, setResult] = useState<EpochVerdict | null>(null);
   const [error, setError] = useState('');
 
   function handleVerify() {
@@ -28,12 +26,16 @@ export function EpochVerifier() {
     }
 
     try {
-      const secretBytes = parseHex(serverSecret);
-      const hashBytes = parseHex(commitHash);
+      const secretBytes = parseHex(serverSecret.trim());
+      const hashBytes = parseHex(commitHash.trim());
       const computed = commitEpoch(secretBytes);
       const valid = verifyEpoch(secretBytes, hashBytes);
 
-      setResult({ valid, computedHash: bytesToHex(computed) });
+      setResult({
+        status: valid ? 'valid' : 'invalid',
+        computedHash: bytesToHex(computed),
+        commitHash: bytesToHex(hashBytes),
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Verification failed');
     }
@@ -74,23 +76,7 @@ export function EpochVerifier() {
         </div>
       )}
 
-      {result && (
-        <div class="mt-4 space-y-3">
-          <div
-            class={`p-4 rounded font-medium text-center text-lg ${
-              result.valid
-                ? 'bg-emerald-900/40 border border-emerald-700 text-emerald-300'
-                : 'bg-red-900/40 border border-red-700 text-red-300'
-            }`}
-          >
-            {result.valid ? 'VALID — Epoch commitment matches' : 'INVALID — Hashes do not match'}
-          </div>
-          <div class="text-xs text-gray-500 break-all">
-            <span class="text-gray-400">Computed hash: </span>
-            {result.computedHash}
-          </div>
-        </div>
-      )}
+      {result && <EpochVerdictBanner verdict={result} />}
     </div>
   );
 }

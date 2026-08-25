@@ -22,6 +22,7 @@ import { FullVerifier } from '../full-verifier';
 import { bytesToHex, parseHex } from '../../lib/hex';
 import type { VerificationReceipt } from '../../lib/receipt';
 import {
+  V2_ENTROPY_TS,
   V2_DRAND_ROUND,
   V2_DRAND_RANDOMNESS_HEX,
   V2_DRAND_SIGNATURE_HEX,
@@ -40,13 +41,6 @@ const COMMIT_HASH = bytesToHex(commitEpoch(parseHex(SERVER_SECRET)));
  * published commitment.
  */
 const TAMPERED_SECRET = `${SERVER_SECRET.slice(0, -1)}2`;
-
-/**
- * quicknet round rule: round = floor((ts - genesis) / 3) + 2. This is the
- * timestamp for which V2_DRAND_ROUND (1000) is the first round published
- * strictly after it, so `checkEntropy` passes on the untampered path.
- */
-const V2_ENTROPY_TS = 1692806361;
 
 function baseReceipt(): VerificationReceipt {
   return {
@@ -81,6 +75,9 @@ function v2Receipt(overrides: Partial<VerificationReceipt> = {}): VerificationRe
   return {
     ...baseReceipt(),
     version: 2,
+    // NOTE: this suite is about verdict VISIBILITY, not the frozen goldens —
+    // clientSeed differs from V2_FIXTURE_INPUTS, so V2_EXPECTED_DRAWS are
+    // deliberately not reproduced here (openv2.test.ts covers those).
     entropyTs: V2_ENTROPY_TS,
     drandRound: V2_DRAND_ROUND,
     drandRandomness: V2_DRAND_RANDOMNESS_HEX,
@@ -123,6 +120,29 @@ function clickVerify(el: HTMLElement): void {
 /** Everything the component rendered below the form. */
 function output(el: HTMLElement): string {
   return el.textContent ?? '';
+}
+
+/**
+ * Look a text input up by its visible label. Field renders
+ * `<label><span>{label}</span><input/></label>`, so match on the label
+ * element rather than on sibling position.
+ */
+function fieldByLabel(el: HTMLElement, label: string): HTMLInputElement {
+  for (const l of Array.from(el.querySelectorAll('label'))) {
+    if (l.querySelector('span')?.textContent?.trim() === label) {
+      const input = l.querySelector('input');
+      if (input) return input as HTMLInputElement;
+    }
+  }
+  throw new Error(`field not found: ${label}`);
+}
+
+function typeInto(el: HTMLElement, label: string, value: string): void {
+  const input = fieldByLabel(el, label);
+  act(() => {
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
 }
 
 function hasResultsTable(el: HTMLElement): boolean {
@@ -191,19 +211,71 @@ describe('FullVerifier — epoch verdict visibility (RIP-1237)', () => {
     });
   });
 
+  describe('no commitment supplied', () => {
+    it('says the epoch was NOT CHECKED rather than silently omitting a verdict', () => {
+      // The commit hash is optional. Before RIP-1237 its absence produced a
+      // green-looking results table with no verdict anywhere — the same
+      // "absence reads as success" failure, in the other direction.
+      const { commitHash: _omit, ...rest } = v1Receipt();
+      const el = mount(rest as VerificationReceipt);
+      clickVerify(el);
+
+      const text = output(el);
+      expect(text).toContain('Epoch: NOT CHECKED');
+      expect(text).not.toContain('Epoch: VALID');
+      // Draws ARE still replayed — the check was skipped, not failed.
+      expect(hasResultsTable(el)).toBe(true);
+    });
+  });
+
+  describe('stale output', () => {
+    it('drops a standing verdict as soon as an input is edited', () => {
+      const el = mount(v1Receipt());
+      clickVerify(el);
+      expect(output(el)).toContain('Epoch: VALID');
+
+      typeInto(el, 'Purchase Nonce', '43');
+
+      const text = output(el);
+      expect(text).not.toContain('Epoch: VALID');
+      expect(hasResultsTable(el)).toBe(false);
+    });
+
+    it('drops a standing verdict when the protocol version is switched', () => {
+      const el = mount(v1Receipt());
+      clickVerify(el);
+      expect(output(el)).toContain('Epoch: VALID');
+
+      const select = el.querySelector('select');
+      if (!select) throw new Error('version select not found');
+      act(() => {
+        select.value = 'OPENv2';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+
+      expect(output(el)).not.toContain('Epoch: VALID');
+      expect(hasResultsTable(el)).toBe(false);
+    });
+  });
+
+  it('shows a green epoch verdict beside a FAILED beacon, with no draws', () => {
+    // The one case where two verdicts legitimately coexist: the reveal is
+    // honest but the drand beacon is not authentic.
+    const el = mount(v2Receipt({ drandRandomness: 'a'.repeat(64) }));
+    clickVerify(el);
+
+    const text = output(el);
+    expect(text).toContain('Epoch: VALID');
+    expect(text).toContain('drand beacon FAILED authentication');
+    expect(hasResultsTable(el)).toBe(false);
+  });
+
   it('re-verifying after fixing the secret clears the INVALID verdict', () => {
     const el = mount(v1Receipt({ serverSecret: TAMPERED_SECRET }));
     clickVerify(el);
     expect(output(el)).toContain('Epoch: INVALID');
 
-    const secretField = Array.from(el.querySelectorAll('input')).find(
-      (i) => i.previousSibling?.textContent === 'Server Secret',
-    );
-    if (!secretField) throw new Error('Server Secret field not found');
-    act(() => {
-      secretField.value = SERVER_SECRET;
-      secretField.dispatchEvent(new Event('input', { bubbles: true }));
-    });
+    typeInto(el, 'Server Secret', SERVER_SECRET);
     clickVerify(el);
 
     const text = output(el);
