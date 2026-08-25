@@ -7,13 +7,29 @@ import {
   resolveOpenBatch,
   type OpenBatchResult,
 } from '@riprip-io/provably-fair';
-import { parseHex, bytesToHex } from '../lib/hex';
+import { parseHex, bytesToHex, normalizeHex } from '../lib/hex';
 import { isValidUUID, isValidHex64, isValidHex96, isNonNegativeInteger, isPositiveInteger, validateDrawTablesJSON, MAX_QUANTITY } from '../lib/validation';
 import { resolveOpenBatchV2, checkEntropy, type EntropyCheckResult } from '../lib/openv2';
 import type { VerificationReceipt } from '../lib/receipt';
 import { ReceiptImport } from './receipt-import';
 import { DrawTablesInput } from './draw-tables-input';
 import { ResultsDisplay } from './results-display';
+
+/**
+ * Outcome of the OPENv1/OPENv2 commit-reveal check.
+ *
+ * RIP-1237: this is rendered by `EpochCheckBanner` OUTSIDE the `results`
+ * guard. A failed reveal stops the run before any draws exist, so a banner
+ * that only mounts alongside results silently swallows the single most
+ * important verdict this tool produces.
+ */
+interface EpochCheckOutcome {
+  valid: boolean;
+  /** sha256(serverSecret) — what the supplied secret actually hashes to. */
+  computedHash: string;
+  /** The commitment the user supplied, normalized, snapshotted at verify time. */
+  commitHash: string;
+}
 
 interface FullVerifierProps {
   /**
@@ -64,7 +80,7 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
 
   const [results, setResults] = useState<OpenBatchResult | null>(null);
   const [entropyCheck, setEntropyCheck] = useState<EntropyCheckResult | null>(null);
-  const [epochCheck, setEpochCheck] = useState<{ valid: boolean; computedHash: string } | null>(null);
+  const [epochCheck, setEpochCheck] = useState<EpochCheckOutcome | null>(null);
   const [intermediates, setIntermediates] = useState<{ userKey: string; clientSeedHash: string } | null>(null);
   const [error, setError] = useState(initialReceiptError ?? '');
 
@@ -185,10 +201,19 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
 
       // Epoch check (optional)
       if (commitHash) {
-        const hashBytes = parseHex(commitHash.trim());
+        const trimmedCommitHash = commitHash.trim();
+        const hashBytes = parseHex(trimmedCommitHash);
         const computed = commitEpoch(secretBytes);
         const valid = verifyEpoch(secretBytes, hashBytes);
-        setEpochCheck({ valid, computedHash: bytesToHex(computed) });
+        setEpochCheck({
+          valid,
+          computedHash: bytesToHex(computed),
+          commitHash: normalizeHex(trimmedCommitHash),
+        });
+        // A failed reveal stops the run — draws are NEVER replayed against a
+        // secret that does not open the published commitment. The verdict
+        // stays visible because EpochCheckBanner renders outside the
+        // `results` guard (RIP-1237).
         if (!valid) return;
       }
 
@@ -339,15 +364,50 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
         </div>
       )}
 
+      {epochCheck && <EpochCheckBanner check={epochCheck} />}
+
       {entropyCheck && <EntropyChecks check={entropyCheck} />}
 
-      {results && (
-        <ResultsDisplay
-          results={results}
-          epochCheck={epochCheck}
-          intermediates={intermediates}
-        />
+      {results && <ResultsDisplay results={results} intermediates={intermediates} />}
+    </div>
+  );
+}
+
+/**
+ * Epoch commit-reveal verdict (RIP-1237).
+ *
+ * Rendered independently of `results` so a FAILED reveal — which stops the
+ * run before any draws are replayed — is always visible. Showing nothing is
+ * indistinguishable from "the tool is broken", which is the worst possible
+ * answer for a trust tool.
+ */
+function EpochCheckBanner({ check }: { check: EpochCheckOutcome }) {
+  return (
+    <div
+      class={`mt-4 p-3 rounded border text-sm space-y-2 ${
+        check.valid
+          ? 'bg-emerald-900/40 border-emerald-700 text-emerald-300'
+          : 'bg-red-900/40 border-red-700 text-red-300'
+      }`}
+    >
+      <div class="font-semibold">Epoch: {check.valid ? 'VALID' : 'INVALID'}</div>
+      {!check.valid && (
+        <div class="text-xs text-red-200">
+          The revealed server secret does not hash to the published commit hash, so it is
+          not the secret that was committed to before this epoch began. Draws were not
+          replayed — no result below can be trusted.
+        </div>
       )}
+      <div class="text-xs text-gray-400 break-all font-mono space-y-0.5">
+        <p>
+          <span class="text-gray-500">sha256(server secret): </span>
+          {check.computedHash}
+        </p>
+        <p>
+          <span class="text-gray-500">published commit hash:&nbsp;</span>
+          {check.commitHash}
+        </p>
+      </div>
     </div>
   );
 }
