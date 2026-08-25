@@ -1,0 +1,24 @@
+name: Test
+
+# Deploys happen on push to main with no other gate, so this is the only
+# chance to catch a regression BEFORE it is published (RIP-1237).
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      # tsc runs as part of the build, so this covers type-checking too.
+      - run: npm run build

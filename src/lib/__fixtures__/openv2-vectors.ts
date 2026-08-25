@@ -8,11 +8,25 @@
  *   https://api.drand.sh/52db9ba7…c84e971/public/1000
  */
 
+import { QUICKNET_GENESIS_TIME, QUICKNET_PERIOD_SECONDS } from '../openv2';
+
 export const V2_DRAND_ROUND = 1000;
 export const V2_DRAND_RANDOMNESS_HEX =
   'fe290beca10872ef2fb164d2aa4442de4566183ec51c56ff3cd603d930e54fdd';
 export const V2_DRAND_SIGNATURE_HEX =
   'b44679b9a59af2ec876b1a6b1ad52ea9b1615fc3982b19576350f93447cb1125e342b73a8dd2bacbe47e4b6b63ed5e39';
+
+/**
+ * The entropy timestamp that V2_DRAND_ROUND answers: the publish time of the
+ * round BEFORE it, i.e. the tightest timestamp for which V2_DRAND_ROUND is
+ * the first round published strictly after it.
+ *
+ * Derived from the frozen chain parameters rather than hardcoded, and
+ * deliberately NOT via roundPublishTime() — suites that exercise the round
+ * rule must not compute their expectation with the function under test.
+ */
+export const V2_ENTROPY_TS =
+  QUICKNET_GENESIS_TIME + (V2_DRAND_ROUND - 2) * QUICKNET_PERIOD_SECONDS;
 
 /** Shared OPENv1/v2 fixture inputs (identical to the monorepo goldens). */
 export const V2_FIXTURE_INPUTS = {

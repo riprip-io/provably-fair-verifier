@@ -1,28 +1,21 @@
 import type { OpenBatchResult } from '@riprip-io/provably-fair';
 
+/**
+ * Draw results only. The epoch verdict deliberately does NOT live here:
+ * a failed commit-reveal stops verification before any results exist, so a
+ * banner owned by this component is unreachable in exactly the case that
+ * matters most. It is rendered by `EpochCheckBanner` in full-verifier.tsx
+ * (RIP-1237).
+ */
 export function ResultsDisplay({
   results,
-  epochCheck,
   intermediates,
 }: {
   results: OpenBatchResult;
-  epochCheck?: { valid: boolean; computedHash: string } | null;
   intermediates?: { userKey: string; clientSeedHash: string } | null;
 }) {
   return (
     <div class="mt-6 space-y-4">
-      {epochCheck && (
-        <div
-          class={`p-3 rounded text-sm font-medium ${
-            epochCheck.valid
-              ? 'bg-emerald-900/40 border border-emerald-700 text-emerald-300'
-              : 'bg-red-900/40 border border-red-700 text-red-300'
-          }`}
-        >
-          Epoch: {epochCheck.valid ? 'VALID' : 'INVALID'}
-        </div>
-      )}
-
       {intermediates && (
         <details class="text-xs text-gray-500">
           <summary class="cursor-pointer text-gray-400 hover:text-gray-300">

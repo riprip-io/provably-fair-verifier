@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { parseReceipt } from '../receipt';
+import {
+  V2_ENTROPY_TS,
+  V2_DRAND_ROUND,
+  V2_DRAND_RANDOMNESS_HEX,
+  V2_DRAND_SIGNATURE_HEX,
+} from '../__fixtures__/openv2-vectors';
 
 function makeValidReceipt(overrides?: Record<string, unknown>) {
   return JSON.stringify({
@@ -51,12 +57,13 @@ describe('parseReceipt', () => {
 
   // ── OPENv2 (RIP-996 / RIP-1010) ──
 
+  // Single source for the frozen quicknet vectors — these were duplicated
+  // by value across three suites.
   const V2_ENTROPY = {
-    entropyTs: 1692806361,
-    drandRound: 1000,
-    drandRandomness: 'fe290beca10872ef2fb164d2aa4442de4566183ec51c56ff3cd603d930e54fdd',
-    drandSignature:
-      'b44679b9a59af2ec876b1a6b1ad52ea9b1615fc3982b19576350f93447cb1125e342b73a8dd2bacbe47e4b6b63ed5e39',
+    entropyTs: V2_ENTROPY_TS,
+    drandRound: V2_DRAND_ROUND,
+    drandRandomness: V2_DRAND_RANDOMNESS_HEX,
+    drandSignature: V2_DRAND_SIGNATURE_HEX,
   };
 
   it('accepts a valid version-2 receipt with entropy fields', () => {
