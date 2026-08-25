@@ -398,13 +398,15 @@ function EpochCheckBanner({ check }: { check: EpochCheckOutcome }) {
           replayed — no result below can be trusted.
         </div>
       )}
-      <div class="text-xs text-gray-400 break-all font-mono space-y-0.5">
+      {/* The two hashes the user is being asked to compare — kept at
+          readable contrast on both the green and the red background. */}
+      <div class="text-xs text-gray-200 break-all font-mono space-y-0.5">
         <p>
-          <span class="text-gray-500">sha256(server secret): </span>
+          <span class="text-gray-400">sha256(server secret): </span>
           {check.computedHash}
         </p>
         <p>
-          <span class="text-gray-500">published commit hash:&nbsp;</span>
+          <span class="text-gray-400">published commit hash:&nbsp;</span>
           {check.commitHash}
         </p>
       </div>
