@@ -283,4 +283,37 @@ describe('FullVerifier — epoch verdict visibility (RIP-1237)', () => {
     expect(text).not.toContain('Epoch: INVALID');
     expect(hasResultsTable(el)).toBe(true);
   });
+
+  describe('batch receipts (RIP-1313)', () => {
+    /** The header cell of the "Pack Open #n" block (1-based, as rendered). */
+    function openHeader(el: HTMLElement, n: number): HTMLElement {
+      const header = Array.from(el.querySelectorAll('div')).find(
+        (d) => d.textContent?.trim().startsWith(`Pack Open #${n}`),
+      );
+      if (!header) throw new Error(`Pack Open #${n} not rendered`);
+      return header as HTMLElement;
+    }
+
+    it('marks which open of the batch the receipt is about', () => {
+      const el = mount(v1Receipt({ quantity: 3, openIndex: 2 }));
+      clickVerify(el);
+
+      // All three opens are derived...
+      expect(output(el)).toContain('Pack Open #1');
+      expect(output(el)).toContain('Pack Open #3');
+      // ...but only the subject one is called out, so the user is not left
+      // guessing which table describes the pack they actually opened.
+      expect(openHeader(el, 3).textContent).toContain('this receipt');
+      expect(openHeader(el, 1).textContent).not.toContain('this receipt');
+    });
+
+    it('marks nothing when the receipt omits openIndex (pre-RIP-1313)', () => {
+      const el = mount(v1Receipt({ quantity: 2 }));
+      clickVerify(el);
+
+      expect(output(el)).toContain('Pack Open #1');
+      expect(output(el)).not.toContain('this receipt');
+    });
+  });
+
 });

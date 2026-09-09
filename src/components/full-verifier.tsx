@@ -43,6 +43,9 @@ function preloadFromReceipt(r: VerificationReceipt | undefined) {
     drandRound: r?.drandRound != null ? String(r.drandRound) : '',
     drandRandomness: r?.drandRandomness ?? '',
     drandSignature: r?.drandSignature ?? '',
+    // Receipt-only: which open of the batch the receipt is about. There is no
+    // form field for it — a hand-filled verification has no single subject.
+    openIndex: r?.openIndex,
   };
 }
 
@@ -62,6 +65,7 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
   const [drandRound, setDrandRound] = useState(seed.drandRound);
   const [drandRandomness, setDrandRandomness] = useState(seed.drandRandomness);
   const [drandSignature, setDrandSignature] = useState(seed.drandSignature);
+  const [subjectOpenIndex, setSubjectOpenIndex] = useState(seed.openIndex);
 
   const [results, setResults] = useState<OpenBatchResult | null>(null);
   const [entropyCheck, setEntropyCheck] = useState<EntropyCheckResult | null>(null);
@@ -86,6 +90,7 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
     setDrandRound(f.drandRound);
     setDrandRandomness(f.drandRandomness);
     setDrandSignature(f.drandSignature);
+    setSubjectOpenIndex(f.openIndex);
     // Fresh inputs invalidate any previous verification output.
     clearOutputs();
   }
@@ -380,7 +385,13 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
 
       {entropyCheck && <EntropyChecks check={entropyCheck} />}
 
-      {results && <ResultsDisplay results={results} intermediates={intermediates} />}
+      {results && (
+        <ResultsDisplay
+          results={results}
+          intermediates={intermediates}
+          subjectOpenIndex={subjectOpenIndex}
+        />
+      )}
     </div>
   );
 }

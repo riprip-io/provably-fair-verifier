@@ -12,6 +12,11 @@ export interface VerificationReceipt {
   purchaseNonce: number;
   packConfigHash: string;
   quantity: number;
+  /**
+   * Which open of the batch this receipt describes (0-based). Optional: older
+   * receipts predate the field and are treated as open 0 (RIP-1313).
+   */
+  openIndex?: number;
   drawTables: Array<{
     drawId: number;
     drawsPerOpen: number;
@@ -87,6 +92,26 @@ export function parseReceipt(json: string): ReceiptValidation {
     }
     if (parsed.quantity > MAX_QUANTITY) {
       return { valid: false, error: `quantity must be ≤ ${MAX_QUANTITY}` };
+    }
+
+    // Optional; absent on pre-RIP-1313 receipts, which are treated as open 0.
+    // When present it must address an open the batch actually contains —
+    // otherwise the draw the user is looking at is not derivable from this
+    // receipt at all.
+    if (parsed.openIndex !== undefined) {
+      if (
+        typeof parsed.openIndex !== 'number' ||
+        !Number.isInteger(parsed.openIndex) ||
+        parsed.openIndex < 0
+      ) {
+        return { valid: false, error: 'Invalid openIndex (expected non-negative integer)' };
+      }
+      if (parsed.openIndex >= parsed.quantity) {
+        return {
+          valid: false,
+          error: `openIndex ${parsed.openIndex} is outside a batch of ${parsed.quantity}`,
+        };
+      }
     }
 
     const drawValidation = validateDrawTablesJSON(JSON.stringify(parsed.drawTables));
