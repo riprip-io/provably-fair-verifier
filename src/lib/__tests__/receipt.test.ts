@@ -201,6 +201,9 @@ describe('parseReceipt', () => {
   });
 
   describe('openIndex (RIP-1313)', () => {
+    // openIndex only picks which rendered open gets the "this receipt" badge.
+    // It must never fail a receipt closed: someone holding an otherwise-valid
+    // receipt has to be able to verify their pack whatever this field says.
     it('accepts a receipt without openIndex — pre-RIP-1313 receipts stay valid', () => {
       const result = parseReceipt(makeValidReceipt());
       expect(result.valid).toBe(true);
@@ -213,24 +216,18 @@ describe('parseReceipt', () => {
       expect(result.receipt?.openIndex).toBe(4);
     });
 
-    it('rejects an openIndex the batch does not contain', () => {
-      // The draw would not be derivable from this receipt at all.
-      const result = parseReceipt(makeValidReceipt({ quantity: 2, openIndex: 2 }));
-      expect(result.valid).toBe(false);
-      expect(result.error).toContain('openIndex');
-    });
-
-    it('rejects a non-integer openIndex', () => {
-      const result = parseReceipt(makeValidReceipt({ quantity: 5, openIndex: 1.5 }));
-      expect(result.valid).toBe(false);
-      expect(result.error).toContain('openIndex');
-    });
-
-    it('rejects a negative openIndex', () => {
-      const result = parseReceipt(makeValidReceipt({ quantity: 5, openIndex: -1 }));
-      expect(result.valid).toBe(false);
-      expect(result.error).toContain('openIndex');
+    it.each([
+      ['outside the batch', { quantity: 2, openIndex: 2 }],
+      ['non-integer', { quantity: 5, openIndex: 1.5 }],
+      ['negative', { quantity: 5, openIndex: -1 }],
+      // JSON.stringify preserves null (it only drops undefined), so a producer
+      // serializing a nullable column emits it. Must not be fatal.
+      ['null', { quantity: 5, openIndex: null }],
+      ['a string', { quantity: 5, openIndex: '2' }],
+    ])('still verifies, dropping an unusable openIndex (%s)', (_label, overrides) => {
+      const result = parseReceipt(makeValidReceipt(overrides));
+      expect(result.valid).toBe(true);
+      expect(result.receipt?.openIndex).toBeUndefined();
     });
   });
-
 });

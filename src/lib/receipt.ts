@@ -13,8 +13,11 @@ export interface VerificationReceipt {
   packConfigHash: string;
   quantity: number;
   /**
-   * Which open of the batch this receipt describes (0-based). Optional: older
-   * receipts predate the field and are treated as open 0 (RIP-1313).
+   * Which open of the batch this receipt describes (0-based). Optional, and
+   * presentational only — it marks one rendered open as the subject. When it
+   * is absent or unusable NO open is marked (there is no open-0 default:
+   * assuming one would put a false "this receipt" badge on the first pack of
+   * every pre-RIP-1313 receipt). RIP-1313.
    */
   openIndex?: number;
   drawTables: Array<{
@@ -94,25 +97,19 @@ export function parseReceipt(json: string): ReceiptValidation {
       return { valid: false, error: `quantity must be ≤ ${MAX_QUANTITY}` };
     }
 
-    // Optional; absent on pre-RIP-1313 receipts, which are treated as open 0.
-    // When present it must address an open the batch actually contains —
-    // otherwise the draw the user is looking at is not derivable from this
-    // receipt at all.
-    if (parsed.openIndex !== undefined) {
-      if (
-        typeof parsed.openIndex !== 'number' ||
-        !Number.isInteger(parsed.openIndex) ||
-        parsed.openIndex < 0
-      ) {
-        return { valid: false, error: 'Invalid openIndex (expected non-negative integer)' };
-      }
-      if (parsed.openIndex >= parsed.quantity) {
-        return {
-          valid: false,
-          error: `openIndex ${parsed.openIndex} is outside a batch of ${parsed.quantity}`,
-        };
-      }
-    }
+    // Optional, and PURELY PRESENTATIONAL: it selects which rendered open gets
+    // the "this receipt" badge and feeds nothing into the derivation. So it
+    // must never fail a receipt closed — someone holding an otherwise-valid
+    // receipt has to be able to verify their pack regardless. Anything
+    // unusable (absent, null, non-integer, negative, or outside the batch the
+    // receipt declares) is dropped and no open is marked.
+    const openIndex =
+      typeof parsed.openIndex === 'number' &&
+      Number.isInteger(parsed.openIndex) &&
+      parsed.openIndex >= 0 &&
+      parsed.openIndex < parsed.quantity
+        ? parsed.openIndex
+        : undefined;
 
     const drawValidation = validateDrawTablesJSON(JSON.stringify(parsed.drawTables));
     if (!drawValidation.valid) {
@@ -150,7 +147,10 @@ export function parseReceipt(json: string): ReceiptValidation {
       }
     }
 
-    return { valid: true, receipt: parsed as VerificationReceipt };
+    return {
+      valid: true,
+      receipt: { ...(parsed as VerificationReceipt), openIndex },
+    };
   } catch {
     return { valid: false, error: 'Invalid JSON' };
   }

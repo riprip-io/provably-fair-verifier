@@ -285,13 +285,20 @@ describe('FullVerifier — epoch verdict visibility (RIP-1237)', () => {
   });
 
   describe('batch receipts (RIP-1313)', () => {
-    /** The header cell of the "Pack Open #n" block (1-based, as rendered). */
+    /**
+     * The header CELL of the "Pack Open #n" block (1-based, as rendered).
+     *
+     * Scoped to the flex header rather than `querySelectorAll('div')`: the
+     * block wrapper comes first in document order and also starts with
+     * "Pack Open #n", so a loose match returns the whole block — including the
+     * draw table — and would pass even if the badge were rendered in a row.
+     */
     function openHeader(el: HTMLElement, n: number): HTMLElement {
-      const header = Array.from(el.querySelectorAll('div')).find(
-        (d) => d.textContent?.trim().startsWith(`Pack Open #${n}`),
-      );
-      if (!header) throw new Error(`Pack Open #${n} not rendered`);
-      return header as HTMLElement;
+      const header = Array.from(
+        el.querySelectorAll<HTMLElement>('div.flex.items-center'),
+      ).find((d) => d.textContent?.trim().startsWith(`Pack Open #${n}`));
+      if (!header) throw new Error(`Pack Open #${n} header cell not rendered`);
+      return header;
     }
 
     it('marks which open of the batch the receipt is about', () => {
@@ -305,6 +312,20 @@ describe('FullVerifier — epoch verdict visibility (RIP-1237)', () => {
       // guessing which table describes the pack they actually opened.
       expect(openHeader(el, 3).textContent).toContain('this receipt');
       expect(openHeader(el, 1).textContent).not.toContain('this receipt');
+    });
+
+    it('drops the badge once an input is edited, like every other verdict', () => {
+      // A stale badge claims "this receipt" beside a batch the receipt no
+      // longer describes — the same false provenance RIP-1237 removed.
+      const el = mount(v1Receipt({ quantity: 3, openIndex: 2 }));
+      clickVerify(el);
+      expect(output(el)).toContain('this receipt');
+
+      typeInto(el, 'Purchase Nonce', '43');
+      clickVerify(el);
+
+      expect(output(el)).toContain('Pack Open #3');
+      expect(output(el)).not.toContain('this receipt');
     });
 
     it('marks nothing when the receipt omits openIndex (pre-RIP-1313)', () => {
