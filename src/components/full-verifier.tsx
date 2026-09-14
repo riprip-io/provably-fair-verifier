@@ -43,6 +43,9 @@ function preloadFromReceipt(r: VerificationReceipt | undefined) {
     drandRound: r?.drandRound != null ? String(r.drandRound) : '',
     drandRandomness: r?.drandRandomness ?? '',
     drandSignature: r?.drandSignature ?? '',
+    // Receipt-only: which open of the batch the receipt is about. There is no
+    // form field for it — a hand-filled verification has no single subject.
+    openIndex: r?.openIndex,
   };
 }
 
@@ -62,6 +65,7 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
   const [drandRound, setDrandRound] = useState(seed.drandRound);
   const [drandRandomness, setDrandRandomness] = useState(seed.drandRandomness);
   const [drandSignature, setDrandSignature] = useState(seed.drandSignature);
+  const [subjectOpenIndex, setSubjectOpenIndex] = useState(seed.openIndex);
 
   const [results, setResults] = useState<OpenBatchResult | null>(null);
   const [entropyCheck, setEntropyCheck] = useState<EntropyCheckResult | null>(null);
@@ -86,6 +90,7 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
     setDrandRound(f.drandRound);
     setDrandRandomness(f.drandRandomness);
     setDrandSignature(f.drandSignature);
+    setSubjectOpenIndex(f.openIndex);
     // Fresh inputs invalidate any previous verification output.
     clearOutputs();
   }
@@ -104,6 +109,12 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
   function edited(setter: (v: string) => void): (v: string) => void {
     return (v: string) => {
       setter(v);
+      // The badge claims WHICH open the imported receipt described. Any edit
+      // means the batch on screen is no longer that receipt, so the claim goes
+      // — RIP-1237's rule applied to the badge. Deliberately not inside
+      // clearOutputs(): handleVerify() calls that on every run and would erase
+      // the badge the instant the user clicks Verify.
+      setSubjectOpenIndex(undefined);
       if (hasOutput) clearOutputs();
     };
   }
@@ -338,6 +349,7 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
               value={isV2 ? 'OPENv2' : 'OPENv1'}
               onChange={(e) => {
                 setIsV2((e.target as HTMLSelectElement).value === 'OPENv2');
+                setSubjectOpenIndex(undefined);
                 clearOutputs();
               }}
               class="mt-1 block w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-sm text-gray-100 focus:outline-none focus:border-emerald-500"
@@ -380,7 +392,13 @@ export function FullVerifier({ initialReceipt, initialReceiptError }: FullVerifi
 
       {entropyCheck && <EntropyChecks check={entropyCheck} />}
 
-      {results && <ResultsDisplay results={results} intermediates={intermediates} />}
+      {results && (
+        <ResultsDisplay
+          results={results}
+          intermediates={intermediates}
+          subjectOpenIndex={subjectOpenIndex}
+        />
+      )}
     </div>
   );
 }

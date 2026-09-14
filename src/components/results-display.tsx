@@ -10,9 +10,16 @@ import type { OpenBatchResult } from '@riprip-io/provably-fair';
 export function ResultsDisplay({
   results,
   intermediates,
+  subjectOpenIndex,
 }: {
   results: OpenBatchResult;
   intermediates?: { userKey: string; clientSeedHash: string } | null;
+  /**
+   * The open this receipt is about, when it came from a single-opening receipt
+   * (RIP-1313). A batch of N renders N tables; without this the user has no way
+   * to tell which one is the pack they actually opened.
+   */
+  subjectOpenIndex?: number;
 }) {
   return (
     <div class="mt-6 space-y-4">
@@ -36,8 +43,19 @@ export function ResultsDisplay({
 
       {results.results.map((openResult) => (
         <div key={openResult.openIndex} class="border border-gray-800 rounded overflow-hidden">
-          <div class="px-3 py-2 bg-gray-900 text-sm font-medium text-gray-300">
-            Pack Open #{openResult.openIndex + 1}
+          <div
+            class={`px-3 py-2 text-sm font-medium flex items-center gap-2 ${
+              openResult.openIndex === subjectOpenIndex
+                ? 'bg-emerald-900/40 text-emerald-200'
+                : 'bg-gray-900 text-gray-300'
+            }`}
+          >
+            <span>Pack Open #{openResult.openIndex + 1}</span>
+            {openResult.openIndex === subjectOpenIndex && (
+              <span class="px-1.5 py-0.5 rounded bg-emerald-700 text-emerald-50 text-xs font-semibold">
+                this receipt
+              </span>
+            )}
           </div>
           <table class="w-full text-sm">
             <thead>
